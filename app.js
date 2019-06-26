@@ -2,17 +2,10 @@ const createError = require("http-errors");
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const logger = require("morgan");
-const request = require("request");
-const xmlParse = require("fast-xml-parser");
 const graphql = require("graphql");
 const expressGraphQl = require("express-graphql");
 const { GraphQLSchema } = graphql;
-
 const { query } = require("./graphql/queries");
-const migrate = require("./migration");
-
-const { redis } = require("./conn/redis");
-const config = require("./config");
 
 const schema = new GraphQLSchema({
     query
@@ -33,57 +26,9 @@ app.use(
     "/",
     expressGraphQl({
         schema: schema,
-        graphiql: true
+        graphiql: process.env["NODE_ENV"] == "development" ? true : false
     })
 );
-
-/**
- * Migration script call
- */
-
-const migration = () => {
-    /**
-     * Create all Tables
-     */
-    require("./conn/pg")
-        .createTables()
-        .then(d => {
-            console.log("<<< Tables setup done >>>");
-        })
-        .catch(e => {
-            console.log("<<< Failed to setup tables >>>");
-            throw e;
-        });
-    /**
-     * Pull file URI from GCP and process
-     */
-    request.get(config.GCP_STORAGE_BASE, (e, d) => {
-        if (e) {
-            throw e;
-        }
-        a = xmlParse.parse(d.body);
-        for (const urlObj of a.ListBucketResult.Contents) {
-            if (urlObj.Key.split(".").indexOf("csv") > -1) {
-                const full_url = config.GCP_STORAGE_BASE + urlObj.Key;
-                redis
-                    .get(full_url)
-                    .then(d => {
-                        if (d == "true") {
-                            console.log("Already processed earlier.");
-                        } else {
-                            console.log("processing...... " + urlObj.Key);
-                            migrate(full_url, true);
-                        }
-                    })
-                    .catch(ex => {
-                        throw { err: ex, at: urlObj.Key };
-                    });
-            }
-        }
-    });
-};
-
-migration();
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
