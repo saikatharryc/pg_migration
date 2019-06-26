@@ -4,13 +4,20 @@ const cookieParser = require("cookie-parser");
 const logger = require("morgan");
 const request = require("request");
 const xmlParse = require("fast-xml-parser");
+const graphql = require("graphql");
+const expressGraphQl = require("express-graphql");
+const { GraphQLSchema } = graphql;
 
+const { query } = require("./graphql/queries");
 const migrate = require("./migration");
-const indexRouter = require("./routes/index");
-const usersRouter = require("./routes/users");
 
 const { redis } = require("./conn/redis");
 const config = require("./config");
+
+const schema = new GraphQLSchema({
+    query
+});
+
 const app = express();
 
 app.use(logger("dev"));
@@ -18,8 +25,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
-app.use("/", indexRouter);
-app.use("/users", usersRouter);
+/**
+ * GraphQl
+ */
+
+app.use(
+    "/",
+    expressGraphQl({
+        schema: schema,
+        graphiql: true
+    })
+);
 
 /**
  * Migration script call
@@ -29,7 +45,7 @@ const migration = () => {
     /**
      * Create all Tables
      */
-    require("./db/pg")
+    require("./conn/pg")
         .createTables()
         .then(d => {
             console.log("<<< Tables setup done >>>");
@@ -75,14 +91,46 @@ app.use(function(req, res, next) {
 });
 
 // error handler
-app.use(function(err, req, res, next) {
-    // set locals, only providing error in development
-    res.locals.message = err.message;
-    res.locals.error = req.app.get("env") === "development" ? err : {};
+app.use((err, req, res, next) => {
+    const errorObj = {
+        service: "migration_service"
+    };
+    if (err.status === 400) {
+        if (err.validationErrors) {
+            errorObj.validationErrors = err.validationErrors;
+        }
+        errorObj.message = err.message || "Invalid Values Supplied";
+        errorObj.head = err.head || null;
+    } else if (err.status === 401 || err.status === 403) {
+        errorObj.head = err.head || null;
+        errorObj.message = err.message || "Unauthorized User";
+    } else if (err.status === 500) {
+        errorObj.head = err.head || null;
 
-    // render the error page
-    res.status(err.status || 500);
-    res.render("error");
+        errorObj.message = err.message;
+
+        errorObj.message = "Internal Server Error";
+    } else if (err.status === 404) {
+        errorObj.head = err.head || null;
+        errorObj.message = err.message;
+    } else {
+        errorObj.head = err.head || null;
+
+        errorObj.message = err.message || "Unknown Error Occurred";
+    }
+
+    next();
+
+    return res.status(err.status || 500).json(errorObj);
+});
+
+process.on("SIGTERM", function() {
+    //do something before Gracefully shut it down
+    process.exit(0);
+});
+process.on("SIGINT", function() {
+    //do something before Gracefully shut it down
+    process.exit(0);
 });
 
 module.exports = app;

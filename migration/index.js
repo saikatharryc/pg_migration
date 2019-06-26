@@ -1,10 +1,10 @@
 const copyFrom = require("pg-copy-streams").from;
 const request = require("request");
 const fs = require("fs");
-const { client } = require("../db/pg");
+const { client } = require("../conn/pg");
 const { redis } = require("../conn/redis");
 
-const table = "postgres";
+const table = "assignm_t_1";
 // const fs = require("fs");
 
 const execute = (target, callback) => {
@@ -12,7 +12,6 @@ const execute = (target, callback) => {
         if (err) {
             client.end();
             callback(err);
-            // return console.log(err.stack)
         } else {
             console.log(`Truncated ${target}`);
             callback(null, target);
