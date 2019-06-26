@@ -1,6 +1,8 @@
 const copyFrom = require("pg-copy-streams").from;
 const request = require("request");
+const fs = require("fs");
 const { client } = require("../db/pg");
+const { redis } = require("../conn/redis");
 
 const table = "postgres";
 // const fs = require("fs");
@@ -18,7 +20,8 @@ const execute = (target, callback) => {
     });
 };
 
-module.exports = (inputFile, targetTable = table) => {
+module.exports = (inputFile, uri = true, targetTable = table) => {
+    redis.set(inputFile, false);
     execute(targetTable, err => {
         if (err) return console.log(`Error in Truncate Table: ${err}`);
         var stream = client.query(
@@ -26,7 +29,13 @@ module.exports = (inputFile, targetTable = table) => {
                 `COPY ${targetTable} FROM STDIN (FORMAT csv, HEADER, DELIMITER ',')`
             )
         );
-        var fileStream = request.get(inputFile);
+        if (uri) {
+            //incase file is loading from URI
+            var fileStream = request.get(inputFile);
+        } else {
+            //Incase its a file path
+            var fileStream = fs.createReadStream(inputFile);
+        }
 
         fileStream.on("error", error => {
             console.log(`Error in creating read stream ${error}`);
@@ -38,6 +47,7 @@ module.exports = (inputFile, targetTable = table) => {
             console.log(`Error in creating stream ${error}`);
         });
         stream.on("end", () => {
+            redis.set(inputFile, true);
             console.log(`Completed loading data into ${targetTable}`);
             client.end();
         });
