@@ -9,6 +9,7 @@ const migrate = require("./migration");
 const indexRouter = require("./routes/index");
 const usersRouter = require("./routes/users");
 
+const { redis } = require("./conn/redis");
 const config = require("./config");
 const app = express();
 
@@ -21,30 +22,52 @@ app.use("/", indexRouter);
 app.use("/users", usersRouter);
 
 /**
- * Create all Tables
+ * Migration script call
  */
-// require("./db/pg")
-//     .createTables()
-//     .then(d => {
-//         console.log("<<< Tables setup done >>>");
-//     })
-//     .catch(e => {
-//         console.log("<<< Failed to setup tables >>>");
-//         throw e;
-//     });
 
-request.get(config.GCP_STORAGE_BASE, (e, d) => {
-    if (e) {
-        throw e;
-    }
-    a = xmlParse.parse(d.body);
-    for (const urlObj of a.ListBucketResult.Contents) {
-        if (urlObj.Key.split(".").indexOf("csv") > -1) {
-            console.log(urlObj.Key);
-            migrate(config.GCP_STORAGE_BASE + urlObj.Key);
+const migration = () => {
+    /**
+     * Create all Tables
+     */
+    require("./db/pg")
+        .createTables()
+        .then(d => {
+            console.log("<<< Tables setup done >>>");
+        })
+        .catch(e => {
+            console.log("<<< Failed to setup tables >>>");
+            throw e;
+        });
+    /**
+     * Pull file URI from GCP and process
+     */
+    request.get(config.GCP_STORAGE_BASE, (e, d) => {
+        if (e) {
+            throw e;
         }
-    }
-});
+        a = xmlParse.parse(d.body);
+        for (const urlObj of a.ListBucketResult.Contents) {
+            if (urlObj.Key.split(".").indexOf("csv") > -1) {
+                const full_url = config.GCP_STORAGE_BASE + urlObj.Key;
+                redis
+                    .get(full_url)
+                    .then(d => {
+                        if (d == "true") {
+                            console.log("Already processed earlier.");
+                        } else {
+                            console.log("processing...... " + urlObj.Key);
+                            migrate(full_url, true);
+                        }
+                    })
+                    .catch(ex => {
+                        throw { err: ex, at: urlObj.Key };
+                    });
+            }
+        }
+    });
+};
+
+migration();
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
