@@ -21,7 +21,8 @@ const execute = (target, callback) => {
 };
 
 module.exports = (inputFile, uri = true, targetTable = table) => {
-    redis.set(inputFile, false);
+    /* Before processing , Put a record to redis */
+    redis.set(inputFile, "false");
     execute(targetTable, err => {
         if (err) return console.log(`Error in Truncate Table: ${err}`);
         var stream = client.query(
@@ -47,7 +48,8 @@ module.exports = (inputFile, uri = true, targetTable = table) => {
             console.log(`Error in creating stream ${error}`);
         });
         stream.on("end", () => {
-            redis.set(inputFile, true);
+            /* Once file processed mark the record as completed */
+            redis.set(inputFile, "true");
             console.log(`Completed loading data into ${targetTable}`);
             client.end();
         });
